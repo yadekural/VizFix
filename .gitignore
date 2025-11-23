@@ -1,0 +1,11 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# IDE settings
+.idea/
+.vscode/
+.venv/
+
+# VizFix specific folders
+vizfix_update.zip
