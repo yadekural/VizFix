@@ -8,6 +8,7 @@ import urllib.request
 import zipfile
 import shutil
 import json
+import ssl  # Добавлен модуль SSL
 
 
 # --- СИСТЕМНЫЕ УТИЛИТЫ ---
@@ -97,20 +98,14 @@ def toggle_hidden_items(show):
 
 
 def toggle_taskbar_end_task(enable):
-    # Для этой функции нужен подраздел TaskbarDeveloperSettings
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings"
     try:
-        # Создаем ключ, если его нет (он может отсутствовать по умолчанию)
         key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
-
         val = 1 if enable else 0
         winreg.SetValueEx(key, "TaskbarEndTask", 0, winreg.REG_DWORD, val)
-
         state = "ДОБАВЛЕНА" if enable else "УБРАНА"
         print(f"\n[+] Кнопка 'Завершить задачу' {state} в меню панели задач.")
         winreg.CloseKey(key)
-
-        # Тут иногда перезапуск не нужен сразу, но для надежности лучше предложить
         restart_explorer_generic()
     except Exception as e:
         print(f"\n[-] Ошибка реестра: {e}")
@@ -155,9 +150,15 @@ def download_and_install_mica():
 
     print("[1/4] Поиск обновления...")
     try:
+        # --- SSL FIX ---
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
         api_url = "https://api.github.com/repos/Maplespe/ExplorerBlurMica/releases/latest"
         req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as url:
+
+        with urllib.request.urlopen(req, context=ctx) as url:
             data = json.loads(url.read().decode())
 
         download_url = None
@@ -173,7 +174,9 @@ def download_and_install_mica():
 
         print("[2/4] Скачивание...")
         zip_path = os.path.join(install_dir, "vizfix_update.zip")
-        urllib.request.urlretrieve(download_url, zip_path)
+
+        with urllib.request.urlopen(download_url, context=ctx) as response, open(zip_path, 'wb') as out_file:
+            shutil.copyfileobj(response, out_file)
 
         print("[3/4] Распаковка...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -192,14 +195,30 @@ def download_and_install_mica():
             return
 
         print(f"[4/4] Регистрация...")
+        # Попытка 1: Тихая регистрация
         result = os.system(f'regsvr32 /s "{real_dll_path}"')
 
         if result == 0:
             print("\n[+] Прозрачность установлена!")
             restart_explorer_generic()
         else:
-            print("[-] Ошибка регистрации.")
-            input("Enter...")
+            # Попытка 2: Если не вышло, показываем ошибку пользователю и даем совет
+            print("\n[-] ОШИБКА РЕГИСТРАЦИИ!")
+            print("    Вероятно, у вас не установлен Visual C++ Redistributable.")
+            print("    Сейчас откроется окно с подробной ошибкой. Закройте его, чтобы продолжить.")
+
+            # Запуск без флага /s, чтобы Windows показала окно ошибки
+            os.system(f'regsvr32 "{real_dll_path}"')
+
+            print("\n[?] Хотите открыть страницу загрузки Visual C++? (Это исправит ошибку)")
+            dl_choice = input("    (y/n): ").lower()
+            if dl_choice == 'y':
+                # Открываем официальный сайт Microsoft
+                os.system(
+                    "start https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170")
+                print("[i] Скачайте и установите 'X64' версию, затем попробуйте снова.")
+
+            input("\nНажмите Enter для возврата...")
 
     except Exception as e:
         print(f"[-] Ошибка: {e}")
